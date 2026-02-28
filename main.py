@@ -1,26 +1,20 @@
 from fastapi import FastAPI
-from apps.api.core.config import settings
+from apps.api.core.config import get_settings
 from apps.api.api.main import api_router
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from apps.api.core.main import configure_cors, build_lifespan
+
+settings = get_settings()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
+    lifespan=build_lifespan()
 )
 
 # CORS, this is important!
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://localhost:8000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+configure_cors(app)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
