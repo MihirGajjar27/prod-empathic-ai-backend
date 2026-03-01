@@ -2,7 +2,16 @@ import ulid
 
 
 def _new_id(prefix: str | None = None) -> str:
-    value = ulid.new().str # 26-char Crockford Base32, sortable
+    # Support both common ULID package APIs:
+    # - `ulid.new().str` from `ulid-py`
+    # - `ulid.ulid()` from the lightweight `ulid` module
+    if hasattr(ulid, "new"):
+        generated = ulid.new()
+        value = generated.str if hasattr(generated, "str") else str(generated)
+    elif hasattr(ulid, "ulid"):
+        value = str(ulid.ulid())
+    else:
+        raise RuntimeError("Installed ulid module does not expose a supported generator API.")
     return f"{prefix}_{value}" if prefix else value
 
 
