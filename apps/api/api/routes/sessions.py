@@ -1,10 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Any
-from apps.api.core.config import get_neo4j_driver
-from apps.api.services.neo4j.repo_sessions import create_session_record, end_session_record, get_top_concepts_for_session
-from apps.api.services.summaries import build_session_summary
-from neo4j import Driver
+from apps.api.services.neo4j.repo_sessions import create_session_record, end_session_record, get_top_concepts_for_session, build_session_summary
+from fastapi.concurrency import run_in_threadpool
 import uuid
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -23,7 +21,6 @@ class SessionResponse(BaseModel):
 @router.post("/", response_model=SessionResponse)
 async def create_session(
     body: CreateSessionRequest | None = None,
-    driver: Driver = Depends(get_neo4j_driver)
 ) -> SessionResponse:
     body = body or CreateSessionRequest()
 
@@ -35,12 +32,17 @@ async def create_session(
     import time
     created_at_ms = int(time.time() * 1000)
 
-    await create_session_record(
-        driver=driver,
+    # await create_session_record(
+    #     session_id=session_id,
+    #     created_at_ms=created_at_ms,
+    #     # client_metadata=body.client_metadata,
+    #     # started_at_ms=body.started_at_ms,
+    # )
+
+    await run_in_threadpool(
+        create_session_record,
         session_id=session_id,
         created_at_ms=created_at_ms,
-        client_metadata=body.client_metadata,
-        started_at_ms=body.started_at_ms,
     )
 
     return SessionResponse(
@@ -56,29 +58,31 @@ class EndSessionResponse(BaseModel):
 @router.post("/{session_id}/end", response_model=EndSessionResponse)
 async def end_session(
     session_id: str,
-    driver: Driver = Depends(get_neo4j_driver),
 ) -> EndSessionResponse:
     import time
     ended_at_ms = int(time.time() * 1000)
 
-    updated = await end_session_record(driver=driver, session_id=session_id, ended_at_ms=ended_at_ms)
+    updated = await run_in_threadpool(
+        end_session_record,
+        session_id=session_id,
+        ended_at_ms=ended_at_ms,
+    )
+
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    summary = ""
-    top_concepts: list[dict] = []
-
     try:
-        top_concepts = await get_top_concepts_for_session(driver=driver, session_id=session_id, limit=10)
+        top_concepts = await run_in_threadpool(
+            get_top_concepts_for_session,
+            session_id=session_id,
+            limit=10,
+        )
     except Exception:
         top_concepts = []
 
     try:
-        summary = await build_session_summary(driver=driver, session_id=session_id)
+        summary = await run_in_threadpool(build_session_summary, session_id=session_id)
     except Exception:
         summary = ""
 
-    return EndSessionResponse(
-        summary=summary,
-        top_concepts=top_concepts
-    )
+    return EndSessionResponse(summary=summary, top_concepts=top_concepts)

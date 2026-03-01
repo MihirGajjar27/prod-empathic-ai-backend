@@ -3,7 +3,7 @@ from typing import Any
 import json
 
 from services.neo4j.driver import execute_read, execute_write
-from utils.errors import AppError
+from apps.api.utils.errors import AppError
 
 
 def upsert_utterance(

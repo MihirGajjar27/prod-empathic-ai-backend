@@ -1,7 +1,7 @@
 from pathlib import Path
 from domain.enums import ConceptLabel
 from services.neo4j.driver import get_driver
-from utils.errors import AppError
+from apps.api.utils.errors import AppError
 
 _DEFAULT_CONSTRAINTS_PATH = Path(__file__).resolve().parent / "cypher" / "constraints.cypher"
 _FULLTEXT_INDEX_NAME = "concept_canonical_fulltext"
@@ -15,7 +15,7 @@ def load_constraints_cypher(file_path: Path) -> str:
 
 
 def run_migrations() -> dict[str, object]:
-    from app.deps import get_settings
+    from apps.api.core.config import get_settings
 
     statements = _split_cypher_statements(load_constraints_cypher(_DEFAULT_CONSTRAINTS_PATH))
     statements.extend(_generated_constraint_statements())

@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from . import config
 from contextlib import asynccontextmanager
+from apps.api.services.neo4j.driver import create_driver, close_driver
 import httpx
 
 
@@ -33,6 +34,10 @@ def include_ws_routers(app: FastAPI) -> None:
     pass
 
 
+def get_http_client(request: Request) -> httpx.AsyncClient:
+    return request.app.state.http_client
+
+
 def build_lifespan():
     """
     Register startup/shutdown hooks using FastAPI lifespan.
@@ -46,9 +51,11 @@ def build_lifespan():
         s = config.get_settings()
 
         app.state.settings = s
-        app.state.neo4j_driver = config.create_neo4j_driver()
+        
+        config.create_neo4j_driver()
 
         app.state.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0),
             headers={
                 "User-Agent": f"{s.SERVICE_NAME}/{s.VERSION}",
                 "Accept": "application/json"
@@ -59,6 +66,7 @@ def build_lifespan():
 
         # Shutdown
         await app.state.http_client.aclose()
-        app.state.neo4j_driver.close()
+
+        config.close_neo4j_driver()
 
     return lifespan

@@ -1,6 +1,8 @@
 import json
 from typing import Any, Mapping
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from domain.enums import ConceptLabel, GraphRelationshipType
 
 _ALLOWED_CONCEPT_LABELS = set(ConceptLabel.values())
@@ -13,8 +15,10 @@ _ALLOWED_EDGE_TOOL_RELATIONSHIPS = {
     GraphRelationshipType.CONFLICTS_WITH.value,
 }
 
+
 class ToolArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
 
 class MentionSpan(ToolArgsModel):
     label: str = Field(min_length=1)
@@ -31,6 +35,7 @@ class MentionSpan(ToolArgsModel):
         if self.start_char is not None and self.end_char is not None and self.end_char < self.start_char:
             raise ValueError("Mention span end_char must be greater than or equal to start_char")
         return self
+
 
 class UpsertConceptNodeArgs(ToolArgsModel):
     label: str = Field(min_length=1)

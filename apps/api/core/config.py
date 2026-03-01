@@ -3,6 +3,7 @@ from pydantic import field_validator
 from neo4j import GraphDatabase, Driver
 from fastapi import Request
 from functools import lru_cache
+from apps.api.services.neo4j.driver import create_driver, close_driver
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -19,20 +20,37 @@ class Settings(BaseSettings):
 
     VERSION: str = "1.0.0"
 
-    # HUME_API_KEY: str
-    # HUME_SECRET_KEY: str
+    # Clerk Auth
+    CLERK_SECRET_KEY: str
+    CLERK_AUTHORIZED_PARTY: str
+
+    HUME_API_KEY: str
+    HUME_SECRET_KEY: str
     # HUME_CONFIG_ID: str
     
     # NOTE: We are using VERTEX AI
     # TODO: Add VERTEX AI Keys
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL_KG: str = ""
+    VERTEX_API_KEY: str
+    GEMINI_API_KEY: str
+    VERTEXAI_LOCATION: str
+    VERTEXAI_PROJECT: str
 
-    # TODO: Add Neo4J
-    NEO4J_URI: str          = ""
-    NEO4J_USERNAME: str     = ""
-    NEO4J_PASSWORD: str     = ""
-    NEO4J_DATABASE: str     = ""
+    # Google Cloud
+    GCLOUD_PROJECT: str
+    GOOGLE_CLOUD_LOCATION: str
+    GEMINI_MODEL_KG: str
+
+    # LangSmith
+    LANGSMITH_TRACING: bool
+    LANGSMITH_ENDPOINT: str
+    LANGSMITH_API_KEY: str
+    LANGSMITH_PROJECT: str
+
+    # Neo4J
+    NEO4J_URI: str
+    NEO4J_USERNAME: str
+    NEO4J_PASSWORD: str
+    NEO4J_DATABASE: str
 
     CORS_ALLOW_ORIGINS: list[str] = ["*"] # or parsed list
 
@@ -45,7 +63,9 @@ class Settings(BaseSettings):
             return items or ["*"]
         return v
 
-    # WS_MAX_SIZE_BYTES: int
+    WS_MAX_SIZE_BYTES: int
+
+    LOG_LEVEL: str
 
 
 # Cached singleton
@@ -62,20 +82,19 @@ def create_neo4j_driver() -> Driver:
     s = get_settings()
     if not s.NEO4J_URI:
         raise RuntimeError("NEO4J_URI is not set")
-
-    driver = GraphDatabase.driver(
-        s.NEO4J_URI,
-        auth=(s.NEO4J_USERNAME, s.NEO4J_PASSWORD),
+    
+    create_driver(
+        uri=s.NEO4J_URI,
+        username=s.NEO4J_USERNAME,
+        password=s.NEO4J_PASSWORD
     )
 
-    return driver
 
-
-def get_neo4j_driver(request: Request) -> Driver:
+def close_neo4j_driver():
     """
-    This function is used for any Depends(...) usage with getting app state!
+    Closes Neo4J Driver
     """
-    return request.app.state.neo4j_driver
+    close_driver()
 
 
 # TODO: Finish this once orchestration

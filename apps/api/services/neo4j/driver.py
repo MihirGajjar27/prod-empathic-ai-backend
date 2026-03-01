@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from utils.errors import AppError
+from apps.api.utils.errors import AppError
 
 try:
     from neo4j import GraphDatabase
