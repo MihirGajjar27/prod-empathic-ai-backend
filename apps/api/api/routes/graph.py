@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 
 from domain.models import GraphSnapshot
-from services.neo4j.repo_graph import get_graph_snapshot
+from services.neo4j.repo_graph import get_full_graph_snapshot, get_graph_snapshot
 from services.neo4j.repo_sessions import get_session_record
 
 router = APIRouter(tags=["graph"])
@@ -29,5 +29,24 @@ async def get_session_graph(
         session_id=session_id,
         node_limit=limit_nodes,
         edge_limit=limit_edges,
+    )
+    return GraphSnapshot.model_validate(snapshot)
+
+
+@router.get("/v1/sessions/{session_id}/graph/full", response_model=GraphSnapshot)
+async def get_full_session_graph(session_id: str) -> GraphSnapshot:
+    session = await run_in_threadpool(get_session_record, session_id=session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "session_not_found",
+                "message": f"Session {session_id} was not found.",
+            },
+        )
+
+    snapshot = await run_in_threadpool(
+        get_full_graph_snapshot,
+        session_id=session_id,
     )
     return GraphSnapshot.model_validate(snapshot)

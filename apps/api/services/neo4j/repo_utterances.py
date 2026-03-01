@@ -165,11 +165,16 @@ def _insert_prosody_frame_tx(
     result = tx.run(
         """
         MATCH (s:Session {sessionId: $session_id})
+        OPTIONAL MATCH (u:Utterance {sessionId: $session_id, messageId: $message_id})
         MERGE (p:ProsodyFrame {frameId: $frame_id})
         ON CREATE SET p.createdAt = $created_at_ms
         SET p.sessionId = $session_id,
             p.messageId = $message_id,
             p.topJson = $top_json
+        MERGE (s)-[:HAS_PROSODY_FRAME]->(p)
+        FOREACH (_ IN CASE WHEN u IS NULL THEN [] ELSE [1] END |
+            MERGE (u)-[:HAS_PROSODY_FRAME]->(p)
+        )
         RETURN p.frameId AS frame_id,
                p.sessionId AS session_id,
                p.messageId AS message_id,

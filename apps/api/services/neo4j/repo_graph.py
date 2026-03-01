@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from domain.enums import ConceptLabel, GraphRelationshipType
@@ -110,6 +111,29 @@ def get_graph_snapshot(*, session_id: str, node_limit: int = 200, edge_limit: in
         query_fn=_get_graph_edges_tx,
         session_id=session_id,
         edge_limit=edge_limit,
+    )
+
+    node_map: dict[str, dict[str, Any]] = {node["id"]: node for node in nodes}
+    edges: list[dict[str, Any]] = []
+
+    for row in edges_with_nodes:
+        source_node = row["source_node"]
+        target_node = row["target_node"]
+        node_map.setdefault(source_node["id"], source_node)
+        node_map.setdefault(target_node["id"], target_node)
+        edges.append(row["edge"])
+
+    return {"nodes": list(node_map.values()), "edges": edges}
+
+
+def get_full_graph_snapshot(*, session_id: str) -> dict[str, list[dict]]:
+    nodes = execute_read(
+        query_fn=_get_full_graph_nodes_tx,
+        session_id=session_id,
+    )
+    edges_with_nodes = execute_read(
+        query_fn=_get_full_graph_edges_tx,
+        session_id=session_id,
     )
 
     node_map: dict[str, dict[str, Any]] = {node["id"]: node for node in nodes}
@@ -310,6 +334,21 @@ def _get_graph_nodes_tx(tx: Any, *, session_id: str, node_limit: int) -> list[di
     return [_node_payload_from_labels_and_props(record["labels"], record["props"]) for record in result]
 
 
+def _get_full_graph_nodes_tx(tx: Any, *, session_id: str) -> list[dict[str, Any]]:
+    result = tx.run(
+        """
+        MATCH (n)
+        WHERE n.sessionId = $session_id
+        WITH labels(n) AS labels, properties(n) AS props,
+             coalesce(n.lastSeenAt, n.timestampMs, n.createdAt, 0) AS sort_key
+        ORDER BY sort_key DESC
+        RETURN labels, props
+        """,
+        session_id=session_id,
+    )
+    return [_node_payload_from_labels_and_props(record["labels"], record["props"]) for record in result]
+
+
 def _get_graph_edges_tx(tx: Any, *, session_id: str, edge_limit: int) -> list[dict[str, Any]]:
     result = tx.run(
         """
@@ -334,6 +373,44 @@ def _get_graph_edges_tx(tx: Any, *, session_id: str, edge_limit: int) -> list[di
         """,
         session_id=session_id,
         edge_limit=edge_limit,
+    )
+
+    rows: list[dict[str, Any]] = []
+    for record in result:
+        source_node = _node_payload_from_labels_and_props(record["source_labels"], record["source_props"])
+        target_node = _node_payload_from_labels_and_props(record["target_labels"], record["target_props"])
+        rows.append(
+            {
+                "source_node": source_node,
+                "target_node": target_node,
+                "edge": _edge_payload(
+                    rel_type=record["rel_type"],
+                    rel_props=record["rel_props"],
+                    source_node=source_node,
+                    target_node=target_node,
+                ),
+            }
+        )
+    return rows
+
+
+def _get_full_graph_edges_tx(tx: Any, *, session_id: str) -> list[dict[str, Any]]:
+    result = tx.run(
+        """
+        MATCH (source)-[r]->(target)
+        WHERE source.sessionId = $session_id
+          AND target.sessionId = $session_id
+        WITH labels(source) AS source_labels,
+             properties(source) AS source_props,
+             labels(target) AS target_labels,
+             properties(target) AS target_props,
+             type(r) AS rel_type,
+             properties(r) AS rel_props,
+             coalesce(r.lastSeenAt, r.createdAt, 0) AS sort_key
+        ORDER BY sort_key DESC
+        RETURN source_labels, source_props, target_labels, target_props, rel_type, rel_props
+        """,
+        session_id=session_id,
     )
 
     rows: list[dict[str, Any]] = []
@@ -476,6 +553,21 @@ def _normalize_canonical(canonical: str) -> str:
 
 def _node_payload_from_labels_and_props(labels: list[str], props: dict[str, Any]) -> dict[str, Any]:
     label = labels[0]
+    if label == "Session":
+        session_id = props["sessionId"]
+        return {
+            "id": session_id,
+            "label": label,
+            "canonical": session_id,
+            "properties": {
+                "session_id": session_id,
+                "created_at_ms": props.get("createdAt"),
+                "ended_at_ms": props.get("endedAt"),
+                "latest_goal_canonical": props.get("latestGoalCanonical"),
+                "goal_updated_at_ms": props.get("goalUpdatedAt"),
+            },
+        }
+
     if label == "Utterance":
         utterance_id = props["utteranceId"]
         canonical = props.get("text", "")
@@ -490,6 +582,30 @@ def _node_payload_from_labels_and_props(labels: list[str], props: dict[str, Any]
                 "text": props.get("text"),
                 "message_id": props.get("messageId"),
                 "timestamp_ms": props.get("timestampMs"),
+            },
+        }
+
+    if label == "ProsodyFrame":
+        frame_id = props["frameId"]
+        raw_top_json = props.get("topJson")
+        top_scores = {}
+        if isinstance(raw_top_json, str) and raw_top_json:
+            try:
+                loaded = json.loads(raw_top_json)
+                if isinstance(loaded, dict):
+                    top_scores = loaded
+            except json.JSONDecodeError:
+                top_scores = {}
+        return {
+            "id": frame_id,
+            "label": label,
+            "canonical": str(props.get("messageId") or frame_id),
+            "properties": {
+                "frame_id": frame_id,
+                "session_id": props.get("sessionId"),
+                "message_id": props.get("messageId"),
+                "top_scores": top_scores,
+                "created_at_ms": props.get("createdAt"),
             },
         }
 
