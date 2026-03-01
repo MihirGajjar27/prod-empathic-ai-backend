@@ -1,36 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
-import httpx
-from apps.api.services.hume.oauth import fetch_access_token
-from apps.api.core.config import get_settings
-from apps.api.core.main import get_http_client
-from typing import Any
+from fastapi import APIRouter, HTTPException
 
-router = APIRouter(prefix="/hume", tags=["hume"])
+from apps.api.core.config import get_hume_http_client, get_settings
+from services.hume.oauth import fetch_access_token
+
+router = APIRouter(tags=["hume"])
 
 
-@router.post("/access-token")
-async def create_hume_access_token(
-    http_client: httpx.AsyncClient = Depends(get_http_client),
-) -> dict[str, Any]:
+@router.post("/v1/hume/access-token")
+async def create_hume_access_token() -> dict[str, object]:
     settings = get_settings()
+    http_client = get_hume_http_client()
 
     try:
-        # Optional: override per-call timeout
-        response = await fetch_access_token(
-            api_key=settings.HUME_API_KEY,
-            secret_key=settings.HUME_SECRET_KEY,
+        token_payload = await fetch_access_token(
+            api_key=settings.hume_api_key,
+            secret_key=settings.hume_secret_key,
             http_client=http_client,
         )
-        return response
+    except Exception as exc:
+        http_status = getattr(exc, "http_status", 502)
+        detail = {
+            "code": getattr(exc, "code", "hume_access_token_failed"),
+            "message": getattr(exc, "message", "Failed to fetch a Hume access token."),
+            "correlation_id": getattr(exc, "correlation_id", None),
+        }
+        raise HTTPException(status_code=http_status, detail=detail) from exc
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=getattr(e, "http_status", 500),
-            detail={
-                "code": getattr(e, "code", "unknown"),
-                "message": getattr(e, "message", str(e)),
-                "retryable": getattr(e, "retryable", False),
-                "details": getattr(e, "details", None),
-            },
-        ) from e
+    return token_payload

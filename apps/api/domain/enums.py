@@ -2,11 +2,6 @@ from enum import Enum
 
 
 class ConceptLabel(str, Enum):
-    """
-    Purpose:
-        Enumerate allowed session-scoped concept labels used throughout prompting, validation, and Neo4j repos.
-    """
-
     PERSON = "Person"
     TRIGGER = "Trigger"
     EMOTION = "Emotion"
@@ -16,13 +11,12 @@ class ConceptLabel(str, Enum):
     ACTION = "Action"
     EVENT = "Event"
 
+    @classmethod
+    def values(cls) -> list[str]:
+        return [member.value for member in cls]
+
 
 class GraphRelationshipType(str, Enum):
-    """
-    Purpose:
-        Enumerate allowed relationship types for the therapy knowledge graph.
-    """
-
     HAS_UTTERANCE = "HAS_UTTERANCE"
     MENTIONS = "MENTIONS"
     EVOKES = "EVOKES"
@@ -31,3 +25,7 @@ class GraphRelationshipType(str, Enum):
     AFFECTS = "AFFECTS"
     SUPPORTS = "SUPPORTS"
     CONFLICTS_WITH = "CONFLICTS_WITH"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        return [member.value for member in cls]

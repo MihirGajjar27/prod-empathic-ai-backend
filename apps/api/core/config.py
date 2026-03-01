@@ -1,107 +1,115 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
-from neo4j import GraphDatabase, Driver
-from fastapi import Request
 from functools import lru_cache
-from apps.api.services.neo4j.driver import create_driver, close_driver
+from pathlib import Path
+from typing import Any
+
+import httpx
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_API_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+_ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+_UNINITIALIZED = object()
+_gemini_client: Any = _UNINITIALIZED
+_hume_http_client: httpx.AsyncClient | object = _UNINITIALIZED
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_ignore_empty=True,
+        env_file=(_API_ENV_FILE, _ROOT_ENV_FILE),
+        env_file_encoding="utf-8",
         extra="ignore",
+        frozen=True,
+        enable_decoding=False,
     )
 
-    API_V1_STR: str = "/v1"
+    hume_api_key: str
+    hume_secret_key: str
+    hume_config_id: str | None = None
 
-    PROJECT_NAME: str = "Empathic-AI"
+    gemini_api_key: str
+    gemini_model_kg: str = "gemini-2.5-flash-lite"
 
-    SERVICE_NAME: str = "empathic-api"
+    neo4j_uri: str
+    neo4j_username: str
+    neo4j_password: str
+    neo4j_database: str = "neo4j"
 
-    VERSION: str = "1.0.0"
+    session_signing_secret: str = "dev-session-secret-change-me"
+    session_token_ttl_seconds: int = 21_600
 
-    # Clerk Auth
-    CLERK_SECRET_KEY: str
-    CLERK_AUTHORIZED_PARTY: str
+    cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    ws_max_size_bytes: int = 16_000_000
+    log_level: str = "INFO"
 
-    HUME_API_KEY: str
-    HUME_SECRET_KEY: str
-    # HUME_CONFIG_ID: str
-    
-    # NOTE: We are using VERTEX AI
-    # TODO: Add VERTEX AI Keys
-    VERTEX_API_KEY: str
-    GEMINI_API_KEY: str
-    VERTEXAI_LOCATION: str
-    VERTEXAI_PROJECT: str
-
-    # Google Cloud
-    GCLOUD_PROJECT: str
-    GOOGLE_CLOUD_LOCATION: str
-    GEMINI_MODEL_KG: str
-
-    # LangSmith
-    LANGSMITH_TRACING: bool
-    LANGSMITH_ENDPOINT: str
-    LANGSMITH_API_KEY: str
-    LANGSMITH_PROJECT: str
-
-    # Neo4J
-    NEO4J_URI: str
-    NEO4J_USERNAME: str
-    NEO4J_PASSWORD: str
-    NEO4J_DATABASE: str
-
-    CORS_ALLOW_ORIGINS: list[str] = ["*"] # or parsed list
-
-    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @field_validator("cors_allow_origins", mode="before")
     @classmethod
-    def parse_cors(cls, v):
-        # supports env like: CORS_ALLOW_ORIGINS="https://a.com,https://b.com"
-        if isinstance(v, str):
-            items = [x.strip() for x in v.split(",") if x.strip()]
-            return items or ["*"]
-        return v
+    def parse_cors_allow_origins(cls, value: str | list[str] | None) -> list[str]:
+        if value is None:
+            return ["http://localhost:3000"]
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        if isinstance(value, list):
+            return [str(origin).strip() for origin in value if str(origin).strip()]
+        raise TypeError("cors_allow_origins must be a comma-separated string or list of strings")
 
-    WS_MAX_SIZE_BYTES: int
+    @field_validator("log_level")
+    @classmethod
+    def normalize_log_level(cls, value: str) -> str:
+        return value.strip().upper()
 
-    LOG_LEVEL: str
 
-
-# Cached singleton
-@lru_cache
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    # NOTE: For now, we won't parse CORS and we will just do a wildcard...
     return Settings()
 
 
-def create_neo4j_driver() -> Driver:
-    """
-    This is used for starting/setting up the driver, please do not use this during app usage.
-    """
-    s = get_settings()
-    if not s.NEO4J_URI:
-        raise RuntimeError("NEO4J_URI is not set")
-    
-    create_driver(
-        uri=s.NEO4J_URI,
-        username=s.NEO4J_USERNAME,
-        password=s.NEO4J_PASSWORD
+def get_neo4j_driver() -> Any:
+    from services.neo4j.driver import get_driver
+
+    return get_driver()
+
+
+def get_gemini_client() -> Any:
+    global _gemini_client
+
+    if _gemini_client is _UNINITIALIZED:
+        settings = get_settings()
+        from services.gemini.client import get_client
+
+        _gemini_client = get_client(api_key=settings.gemini_api_key)
+
+    return _gemini_client
+
+
+def get_hume_http_client() -> Any:
+    global _hume_http_client
+
+    if _hume_http_client is _UNINITIALIZED:
+        _hume_http_client = _build_hume_http_client()
+
+    return _hume_http_client
+
+
+def _build_hume_http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(10.0, connect=5.0),
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "empathic-ai-therapy-backend/0.1.0",
+        },
     )
 
 
-def close_neo4j_driver():
-    """
-    Closes Neo4J Driver
-    """
-    close_driver()
+async def close_hume_http_client() -> None:
+    global _hume_http_client
+
+    if isinstance(_hume_http_client, httpx.AsyncClient):
+        await _hume_http_client.aclose()
+    _hume_http_client = _UNINITIALIZED
 
 
-# TODO: Finish this once orchestration
-def get_gemini_client() -> any:
-    pass
+def reset_dependency_caches() -> None:
+    global _gemini_client
 
-
-# TODO: Finish this once more dependencies done
-def get_hume_http_client():
-    pass
+    get_settings.cache_clear()
+    _gemini_client = _UNINITIALIZED
