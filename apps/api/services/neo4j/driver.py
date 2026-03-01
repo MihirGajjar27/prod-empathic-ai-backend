@@ -112,7 +112,7 @@ def execute_read(
 
 
 def _get_database_name() -> str:
-    from app.deps import get_settings
+    from apps.api.core.config import get_settings
 
     return get_settings().neo4j_database
 
