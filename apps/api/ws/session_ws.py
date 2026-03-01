@@ -6,8 +6,26 @@ router = APIRouter(tags=['ws'])
 
 @router.websocket("/ws/session/{session_id}")
 async def session_ws_endpoint(websocket: WebSocket, session_id: str) -> None:
+    await websocket.accept()
+    try:
+        while True:
+            raw_packet = await websocket.receive_json()
+            await process_client_packet(
+                session_id=session_id,
+                raw_packet=raw_packet,
+                websocket=websocket,
+            )
+    except Exception as e:
+        await send_server_error(
+            websocket=websocket,
+            session_id=session_id,
+            code = "server error",
+            message = "Something went wrong with server",
+            retryable=True
+            details={"error" : str(e)},
+        )
+        return
 
-    pass
 
 async def receive_client_packet(websocket: WebSocket) -> dict[str,Any]:
 
